@@ -11,19 +11,21 @@ import com.lms.party360.app.query.GetPiiQuery;
 import com.lms.party360.app.query.SearchPartyQuery;
 import com.lms.party360.domain.policy.PolicyEnforcer;
 import com.lms.party360.util.Headers;
-import io.spring.gradle.dependencymanagement.org.apache.maven.artifact.repository.Authentication;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.validation.annotation.Validated;
+import com.lms.party360.exception.Problem;
+
+import java.net.URI;
+import java.util.UUID;
 
 @RestController
 @RequestMapping(path = "/api", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -43,6 +45,7 @@ public class PartyController {
 
     private final PolicyEnforcer policyEnforcer;
 
+    @PostMapping(path = "/party/people", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<CreatePartyResponse> createPerson(
             @RequestHeader(name = Headers.IDEMPOTENCY_KEY) @NotBlank String idempotencyKey,
             @Valid @RequestBody CreatePersonRequest request,
@@ -51,6 +54,44 @@ public class PartyController {
 
         policyEnforcer.allow(auth, "CREATE", resourceFromTenant(request.tenant()));
 
+        UUID idem = parseIdempotencyKey(idempotencyKey);
+        CreatePartyResponse createPartyResponse = createPersonHandler.handle(idem, request, auth);
+
+        HttpStatus status = "QUEUED".equals(createPartyResponse.screeningStatus()) ? HttpStatus.ACCEPTED : HttpStatus.CREATED;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(Headers.IDEMPOTENCY_KEY, idempotencyKey);
+        headers.setLocation(URI.create("/api/party/" + createPartyResponse.partyId()));
+
+        return new ResponseEntity<>(createPartyResponse, headers, status);
+    }
+
+    @PostMapping(path = "/party/business", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<CreatePartyResponse> createBusiness(
+            @RequestHeader(name = Headers.IDEMPOTENCY_KEY) @NotBlank String idempotencyKey,
+            @Valid @RequestBody CreateBusinessRequest request,
+            Authentication auth
+    ) {
+        policyEnforcer.allow(auth, "CREATE", resourceFromTenant(request.getTenant()));
+
+        UUID idem = parseIdempotencyKey(idempotencyKey);
+        CreatePartyResponse resp = createBusinessHandler.handle(idem, request, auth);
+
+        HttpStatus status = "QUEUED".equals(resp.screeningStatus()) ? HttpStatus.ACCEPTED : HttpStatus.CREATED;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(Headers.IDEMPOTENCY_KEY, idempotencyKey);
+        headers.setLocation(URI.create("/api/party/" + resp.partyId()));
+
+        return new ResponseEntity<>(resp, headers, status);
+    }
+
+    private static UUID parseIdempotencyKey(String header) throws Throwable {
+        try {
+            return UUID.fromString(header);
+        } catch (IllegalArgumentException iae) {
+            throw Problem.badRequest("INVALID_IDEMPOTENCY_KEY", "Idempotency-Key must be a UUID.");
+        }
     }
 
     private static ResourceRef resourceFromTenant(String tenant) {

@@ -27,6 +27,10 @@ repositories {
 extra["springCloudVersion"] = "2025.0.0"
 
 dependencies {
+	implementation("io.micrometer:micrometer-registry-prometheus")
+	implementation("io.micrometer:micrometer-core")
+	implementation("io.opentelemetry:opentelemetry-exporter-otlp")
+	implementation("org.flywaydb:flyway-core")
 	implementation("org.springframework.boot:spring-boot-starter-actuator")
 	implementation("org.springframework.boot:spring-boot-starter-data-jpa")
 	implementation("org.springframework.boot:spring-boot-starter-data-redis")
